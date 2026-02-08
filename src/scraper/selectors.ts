@@ -1,5 +1,6 @@
 export const CATEGORY_SELECTORS = {
   productLink: 'a.product.tpurl',
+  loadMoreButton: 'button:has-text("טעינת מוצרים נוספים")',
 } as const
 
 export const PRODUCT_SELECTORS = {

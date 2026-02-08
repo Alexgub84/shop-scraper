@@ -1,0 +1,128 @@
+---
+description: Database layer conventions using Drizzle ORM with PostgreSQL
+globs: src/db/**/*.ts, drizzle.config.ts, drizzle/**
+alwaysApply: false
+---
+
+# Database Layer
+
+## Factory Function (`db/index.ts`)
+
+Create a `createDb(connectionString)` function that returns both the Drizzle instance and a `close()` function. Export the `Database` type for use in the dependency interface.
+
+```typescript
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
+import * as schema from './schema.js'
+
+export function createDb(connectionString: string) {
+  const client = postgres(connectionString)
+  const db = drizzle(client, { schema })
+
+  return {
+    db,
+    close: async () => {
+      await client.end()
+    },
+  }
+}
+
+export type Database = ReturnType<typeof drizzle<typeof schema>>
+```
+
+### Rules
+
+- The factory accepts a connection string and returns `{ db, close }`
+- Export `Database` type so `AppDependencies` and `fastify.d.ts` can reference it
+- Never create a global singleton — always use the factory
+- The `close()` function ends the underlying connection pool
+
+## Schema (`db/schema.ts`)
+
+Define all tables using Drizzle's `pgTable()`. Define relations using `relations()`. Export inferred types at the bottom.
+
+```typescript
+import { pgTable, serial, text, timestamp, integer } from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
+
+export const products = pgTable('products', {
+  id: serial('id').primaryKey(),
+  sku: text('sku').notNull().unique(),
+  name: text('name').notNull(),
+  description: text('description'),
+  price: text('price').notNull(),
+  imageUrl: text('image_url'),
+  productUrl: text('product_url').notNull(),
+  scrapedAt: timestamp('scraped_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+export type Product = typeof products.$inferSelect
+export type NewProduct = typeof products.$inferInsert
+```
+
+### Rules
+
+- One schema file for all table definitions
+- Export `$inferSelect` type (for query results) and `$inferInsert` type (for inserts) per table
+- Use these types everywhere — never hand-write interfaces for DB entities
+- Use `text()` for string columns, `serial()` for auto-increment IDs
+- Always include `createdAt` and `updatedAt` timestamps
+- Use snake_case for column names in the database, camelCase in TypeScript
+
+## Migrations
+
+Use Drizzle Kit for migration management.
+
+### `drizzle.config.ts` (project root)
+
+```typescript
+import { defineConfig } from 'drizzle-kit'
+
+export default defineConfig({
+  schema: './src/db/schema.ts',
+  out: './drizzle',
+  dialect: 'postgresql',
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+})
+```
+
+### Commands
+
+| Command                | Purpose                                      |
+| ---------------------- | -------------------------------------------- |
+| `drizzle-kit generate` | Create SQL migration files from schema diffs |
+| `drizzle-kit push`     | Push schema directly (dev only, no files)    |
+| `drizzle-kit studio`   | Open database GUI                            |
+| `npm run db:migrate`   | Run pending migrations (standalone script)   |
+
+### Migration Runner (`db/migrate.ts`)
+
+```typescript
+import { drizzle } from 'drizzle-orm/postgres-js'
+import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import postgres from 'postgres'
+
+const connectionString = process.env.DATABASE_URL
+if (!connectionString) {
+  console.error('DATABASE_URL is required')
+  process.exit(1)
+}
+
+const client = postgres(connectionString, { max: 1 })
+const db = drizzle(client)
+
+await migrate(db, { migrationsFolder: './drizzle' })
+await client.end()
+```
+
+### Rules
+
+- `drizzle-kit generate` to create migrations, `drizzle-kit push` for dev only
+- Migration files go in `drizzle/` directory at project root
+- The migration runner is a standalone script — run it before starting the app
+- Always run migrations in CI before tests
+- Never modify generated migration files by hand

@@ -1,0 +1,105 @@
+---
+description: CI/CD conventions for GitHub Actions and pre-commit hooks
+globs: .github/**
+alwaysApply: false
+---
+
+# CI/CD
+
+## GitHub Actions Workflow (`.github/workflows/ci.yml`)
+
+Triggered on push/PR to `main`. Uses a PostgreSQL service container (faster than Testcontainers in CI).
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: shop_scraper_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/shop_scraper_test
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run db:migrate
+
+      - run: npm run test:run
+
+      - run: npm run build
+```
+
+### Key Points
+
+- PostgreSQL service container starts automatically — no Testcontainers needed
+- `DATABASE_URL` points to the service container
+- Steps: install → migrate → test:run (typecheck + lint + tests) → build
+- Cache npm dependencies for faster runs
+- Playwright browsers are NOT installed in CI (scraper tests are separate)
+
+### Optional: OpenAPI Validation
+
+Add after the build step to catch uncommitted schema changes:
+
+```yaml
+      - run: npm run openapi:generate
+      - run: git diff --exit-code docs/openapi.json
+```
+
+## Pre-Commit Hooks (Husky)
+
+### Setup
+
+```bash
+npm install --save-dev husky
+npx husky init
+```
+
+### `.husky/pre-commit`
+
+```bash
+npm run test:run
+```
+
+### What `test:run` Executes
+
+1. `npm run typecheck` — TypeScript compilation check
+2. `npm run lint` — ESLint + Prettier
+3. `vitest run` — All tests in CI mode
+
+### Rules
+
+- Every commit must pass typecheck + lint + tests
+- If pre-commit hook fails, the commit is blocked
+- Never skip hooks (`--no-verify`) unless explicitly agreed
+- `test:run` is the same command used in CI — local and CI validation are identical

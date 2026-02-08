@@ -1,0 +1,133 @@
+---
+description: Docker conventions for multi-stage builds and compose files
+globs: Dockerfile, docker-compose*.yml
+alwaysApply: false
+---
+
+# Docker
+
+## Multi-Stage Dockerfile
+
+Two stages: build and production.
+
+```dockerfile
+# --- Build stage ---
+FROM node:20-alpine AS build
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npm run build
+
+# --- Production stage ---
+FROM node:20-alpine
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+COPY --from=build /app/dist ./dist
+COPY drizzle/ ./drizzle/
+
+EXPOSE 3000
+
+USER node
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
+CMD ["node", "dist/index.js"]
+```
+
+### Key Principles
+
+- No devDependencies in the production image (`--omit=dev`)
+- No source code in the production image — only compiled JS in `dist/`
+- Deterministic installs via `npm ci`
+- Built-in `HEALTHCHECK` so orchestrators can monitor the container
+- Run as `node` user — never run as root
+- Copy `drizzle/` directory for migration files (run migrations before starting the app)
+
+## Development Compose (`docker-compose.yml`)
+
+PostgreSQL only. For local development — the app runs on the host.
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shop_scraper
+      POSTGRES_PASSWORD: shop_scraper
+      POSTGRES_DB: shop_scraper_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop_scraper"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+```
+
+### Rules
+
+- Named volume (`pgdata`) for data persistence across restarts
+- Health check with `pg_isready` so `depends_on: condition: service_healthy` works
+- App runs on host during dev (`npm run dev`), connects via `localhost:5432`
+- `DATABASE_URL=postgresql://shop_scraper:shop_scraper@localhost:5432/shop_scraper_dev`
+
+## Test Compose (`docker-compose.test.yml`)
+
+Both PostgreSQL and the API. Different ports from dev. No persistent volumes.
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: shop_scraper_test
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://test:test@postgres:5432/shop_scraper_test
+    ports:
+      - "3334:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+```
+
+### Rules
+
+- Different host ports: 5433 for DB, 3334 for API (avoids conflicts with dev)
+- No volumes — everything is ephemeral
+- Health checks on both services
+- API depends on PostgreSQL with `condition: service_healthy`
+- E2E tests tear down and rebuild these containers for every run

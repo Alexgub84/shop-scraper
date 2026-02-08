@@ -1,0 +1,300 @@
+---
+description: Three-tier testing strategy with Vitest, Testcontainers, and Docker
+globs: tests/**/*.ts, vitest.config.ts
+alwaysApply: false
+---
+
+# Testing Strategy
+
+Three levels: unit, integration, E2E. Each has its own dependency strategy.
+
+## Vitest Configuration (`vitest.config.ts`)
+
+```typescript
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    globals: true,
+    pool: 'forks',
+    poolOptions: {
+      forks: { singleFork: true },
+    },
+    testTimeout: 60000,
+    env: {
+      DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+    },
+    coverage: {
+      provider: 'v8',
+      include: ['src/**'],
+      exclude: ['src/index.ts'],
+    },
+  },
+})
+```
+
+### Key Settings
+
+- `globals: true` — clean test syntax, no imports for `describe`/`it`/`expect`
+- `pool: 'forks'` + `singleFork: true` — all test files share one process, one Testcontainers DB
+- `testTimeout: 60000` — 60s to accommodate container startup
+- Dummy `DATABASE_URL` in `env` — satisfies Zod validation at import time (Testcontainers overrides it)
+- Coverage excludes `src/index.ts` (entry point is not unit-testable)
+
+## Unit Tests (`tests/unit/`)
+
+Test error handling, branching logic, and edge cases. Fast, no I/O.
+
+### Pattern
+
+```typescript
+import Fastify from 'fastify'
+import { registerSchemas } from '../../src/schemas/index.js'
+import { productRoutes } from '../../src/routes/products.js'
+
+describe('GET /products', () => {
+  let app: FastifyInstance
+
+  beforeEach(async () => {
+    app = Fastify()
+    app.decorate('db', {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          orderBy: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    })
+    registerSchemas(app)
+    await app.register(productRoutes)
+    await app.ready()
+  })
+
+  afterEach(async () => {
+    await app.close()
+  })
+
+  it('returns 503 when database connection fails', async () => {
+    app.db.select.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        orderBy: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+      }),
+    })
+
+    const res = await app.inject({ method: 'GET', url: '/products' })
+    expect(res.statusCode).toBe(503)
+  })
+})
+```
+
+### Rules
+
+- Create a bare Fastify instance — NOT via `buildApp` (avoids middleware/auth interference)
+- Decorate with mock `db` using `vi.fn()`
+- Mock shape must match how the route calls `fastify.db` (chained methods)
+- Clear mocks in `beforeEach`, close Fastify in `afterEach`
+- Best for: error branches, timeouts, non-Error throws — things hard to trigger with a real DB
+
+## Integration Tests (`tests/integration/`)
+
+Full request/response with a real database. Validates persistence, queries, and business logic.
+
+### Database Helper (`tests/helpers/db.ts`)
+
+```typescript
+import { PostgreSqlContainer } from '@testcontainers/postgresql'
+import { drizzle } from 'drizzle-orm/postgres-js'
+import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import postgres from 'postgres'
+import * as schema from '../../src/db/schema.js'
+
+let container: StartedPostgreSqlContainer
+let client: postgres.Sql
+let db: ReturnType<typeof drizzle>
+
+export async function setupTestDatabase() {
+  container = await new PostgreSqlContainer().start()
+  const connectionString = container.getConnectionUri()
+  client = postgres(connectionString)
+  db = drizzle(client, { schema })
+  await migrate(db, { migrationsFolder: './drizzle' })
+  return db
+}
+
+export async function cleanupTestDatabase() {
+  await db.delete(schema.products)
+}
+
+export async function closeTestDatabase() {
+  await client.end()
+  await container.stop()
+}
+
+export async function seedTestProducts(count: number) {
+  const products = Array.from({ length: count }, (_, i) => ({
+    sku: `TEST-SKU-${i + 1}`,
+    name: `Test Product ${i + 1}`,
+    price: `${(i + 1) * 100}`,
+    productUrl: `https://example.com/product-${i + 1}`,
+    scrapedAt: new Date(),
+  }))
+  await db.insert(schema.products).values(products)
+}
+```
+
+### Pattern
+
+```typescript
+import { buildApp } from '../../src/app.js'
+import { setupTestDatabase, cleanupTestDatabase, closeTestDatabase } from '../helpers/db.js'
+
+describe('Product routes (integration)', () => {
+  let app: FastifyInstance
+  let db: Database
+
+  beforeAll(async () => {
+    db = await setupTestDatabase()
+    app = await buildApp({ db })
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    await closeTestDatabase()
+  })
+
+  beforeEach(async () => {
+    await cleanupTestDatabase()
+  })
+
+  it('returns empty array when no products exist', async () => {
+    const res = await app.inject({ method: 'GET', url: '/products' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([])
+  })
+})
+```
+
+### Rules
+
+- Singleton container pattern — reuse across test files (enabled by `singleFork`)
+- Cleanup rows between tests with `cleanupTestDatabase()`, don't restart the container
+- Delete tables in reverse foreign-key order during cleanup
+- Use `buildApp({ db })` with the real Testcontainers database
+- Use `app.inject()` for requests — no real HTTP server needed
+- Seed helpers create predictable test data
+
+## E2E Tests (`tests/e2e/`)
+
+Validate the app in a production-like Docker environment with real HTTP.
+
+### Docker Compose (`docker-compose.test.yml`)
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: shop_scraper_test
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://test:test@postgres:5432/shop_scraper_test
+    ports:
+      - "3334:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+```
+
+### Pattern
+
+```typescript
+import { execSync } from 'node:child_process'
+
+const API_URL = 'http://localhost:3334'
+
+async function waitForHealthy(url: string, timeoutMs = 60000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`${url}/health`)
+      if (res.ok) return
+    } catch {}
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  throw new Error(`${url} did not become healthy within ${timeoutMs}ms`)
+}
+
+describe('E2E', () => {
+  beforeAll(async () => {
+    execSync('docker compose -f docker-compose.test.yml down --volumes --remove-orphans', { stdio: 'inherit' })
+    execSync('docker compose -f docker-compose.test.yml build', { stdio: 'inherit' })
+    execSync('docker compose -f docker-compose.test.yml up -d postgres', { stdio: 'inherit' })
+    execSync('npm run db:migrate', {
+      stdio: 'inherit',
+      env: { ...process.env, DATABASE_URL: 'postgresql://test:test@localhost:5433/shop_scraper_test' },
+    })
+    execSync('docker compose -f docker-compose.test.yml up -d api', { stdio: 'inherit' })
+    await waitForHealthy(API_URL)
+  }, 180000)
+
+  afterAll(() => {
+    execSync('docker compose -f docker-compose.test.yml down --volumes --remove-orphans', { stdio: 'inherit' })
+  })
+
+  it('GET /health returns 200', async () => {
+    const res = await fetch(`${API_URL}/health`)
+    expect(res.status).toBe(200)
+  })
+})
+```
+
+### Rules
+
+- Use different ports from dev (5433 for DB, 3334 for API)
+- No persistent volumes — everything is ephemeral
+- Tear down existing containers before starting
+- Start PostgreSQL first, wait for healthy, run migrations, then start API
+- Poll `/health` until it responds 200
+- Use real `fetch()` calls, NOT `app.inject()`
+- 180s timeout on `beforeAll` to accommodate builds
+
+## Test Commands
+
+| Script              | Purpose                                              |
+| ------------------- | ---------------------------------------------------- |
+| `test:unit`         | Runs only unit tests (fast, no containers)           |
+| `test:integration`  | Runs only integration tests (Testcontainers)         |
+| `test:e2e`          | Runs only E2E tests (Docker Compose)                 |
+| `test:run`          | Typecheck + lint + all tests (CI and pre-commit)     |
+| `test:coverage`     | All tests with coverage report                       |
+
+### package.json scripts
+
+```json
+{
+  "test": "vitest",
+  "test:unit": "vitest run tests/unit/",
+  "test:integration": "vitest run tests/integration/",
+  "test:e2e": "vitest run tests/e2e/",
+  "test:run": "npm run typecheck && npm run lint && vitest run",
+  "test:coverage": "vitest run --coverage"
+}
+```
