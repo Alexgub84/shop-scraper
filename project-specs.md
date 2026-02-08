@@ -149,25 +149,7 @@ OUTPUT_PATH=./data/products.json
 
 Tracked via [GitHub Issues](https://github.com/Alexgub84/shop-scraper/issues).
 
-### Phase 1 — Local JSON scraper (`phase-1` label)
-
-| # | Issue | Status |
-|---|-------|--------|
-| 1 | [Create config module](https://github.com/Alexgub84/shop-scraper/issues/1) | open |
-| 2 | [Create types & Zod schema](https://github.com/Alexgub84/shop-scraper/issues/2) | open |
-| 3 | [Create CSS selectors module](https://github.com/Alexgub84/shop-scraper/issues/3) | open |
-| 4 | [Create browser lifecycle module](https://github.com/Alexgub84/shop-scraper/issues/4) | open |
-| 5 | [Create link collector](https://github.com/Alexgub84/shop-scraper/issues/5) | open |
-| 6 | [Create product scraper](https://github.com/Alexgub84/shop-scraper/issues/6) | open |
-| 7 | [Create JSON writer](https://github.com/Alexgub84/shop-scraper/issues/7) | open |
-| 8 | [Create entry point (orchestrator)](https://github.com/Alexgub84/shop-scraper/issues/8) | open |
-| 9 | [Validation: build, lint, e2e test](https://github.com/Alexgub84/shop-scraper/issues/9) | open |
-
-### Phase 2 — Database persistence (`phase-2` label)
-
-| # | Issue | Status |
-|---|-------|--------|
-| 10 | [Add DB dependencies](https://github.com/Alexgub84/shop-scraper/issues/10) | open |
-| 11 | [Create DB schema & client](https://github.com/Alexgub84/shop-scraper/issues/11) | open |
-| 12 | [Create product service (DB upsert)](https://github.com/Alexgub84/shop-scraper/issues/12) | open |
-| 13 | [Update entry point to write to DB](https://github.com/Alexgub84/shop-scraper/issues/13) | open |
+| # | Feature | Label | Status |
+|---|---------|-------|--------|
+| 14 | [Scrape product data and save to JSON](https://github.com/Alexgub84/shop-scraper/issues/14) | phase-1 | open |
+| 15 | [Add SQLite database persistence](https://github.com/Alexgub84/shop-scraper/issues/15) | phase-2 | open |
