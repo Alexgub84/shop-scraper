@@ -152,4 +152,5 @@ Tracked via [GitHub Issues](https://github.com/Alexgub84/shop-scraper/issues).
 | # | Feature | Label | Status |
 |---|---------|-------|--------|
 | 14 | [Scrape product data and save to JSON](https://github.com/Alexgub84/shop-scraper/issues/14) | phase-1 | closed |
+| 16 | [Post scraped products to WooCommerce](https://github.com/Alexgub84/shop-scraper/issues/16) | phase-1 | closed |
 | 15 | [Add SQLite database persistence](https://github.com/Alexgub84/shop-scraper/issues/15) | phase-2 | open |
