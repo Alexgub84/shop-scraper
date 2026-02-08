@@ -4,6 +4,7 @@ import { launchBrowser, closeBrowser } from './scraper/browser.js'
 import { collectProductLinks } from './scraper/link-collector.js'
 import { scrapeProduct } from './scraper/product-scraper.js'
 import { writeProducts } from './output/writer.js'
+import { syncProductsToWooCommerce } from './services/woocommerce.js'
 import type { Product } from './types/product.js'
 
 const logger = pino({
@@ -39,13 +40,18 @@ async function main(): Promise<void> {
 
     await writeProducts(products, totalFound, config.OUTPUT_PATH, logger)
 
+    const wcResult = await syncProductsToWooCommerce(products, config, logger)
+
     logger.info(
       {
         totalFound,
         scraped: products.length,
         skipped,
+        wcCreated: wcResult.created,
+        wcUpdated: wcResult.updated,
+        wcFailed: wcResult.failed,
       },
-      'scrape complete',
+      'scrape and sync complete',
     )
   } finally {
     await closeBrowser(browser, logger)

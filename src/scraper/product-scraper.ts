@@ -3,7 +3,7 @@ import type { Logger } from 'pino'
 import { ProductSchema, type Product } from '../types/product.js'
 import { PRODUCT_SELECTORS } from './selectors.js'
 
-const BASE_URL = 'https://www.hemilton.co.il'
+const BASE_URL = 'https://www.mi-il.co.il'
 
 function resolveImageUrl(src: string): string {
   if (src.startsWith('http')) return src
