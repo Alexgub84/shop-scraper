@@ -145,24 +145,29 @@ OUTPUT_PATH=./data/products.json
 8. Log summary (total found, scraped, valid, skipped)
 9. Close browser
 
-## Implementation Checklist
+## Implementation Progress
 
-### Phase 1 — Local JSON scraper
+Tracked via [GitHub Issues](https://github.com/Alexgub84/shop-scraper/issues).
 
-- [ ] 1. Initialize project (package.json, tsconfig, eslint, prettier)
-- [ ] 2. Create config module (`src/config.ts`, `.env`, `.env.example`)
-- [ ] 3. Create types & Zod schema (`src/types/product.ts`)
-- [ ] 4. Create selectors (`src/scraper/selectors.ts`)
-- [ ] 5. Create browser lifecycle (`src/scraper/browser.ts`)
-- [ ] 6. Create link collector (`src/scraper/link-collector.ts`)
-- [ ] 7. Create product scraper (`src/scraper/product-scraper.ts`)
-- [ ] 8. Create JSON writer (`src/output/writer.ts`)
-- [ ] 9. Create entry point (`src/index.ts`)
-- [ ] 10. Run validation (build, lint) and end-to-end test
+### Phase 1 — Local JSON scraper (`phase-1` label)
 
-### Phase 2 — Database persistence (later)
+| # | Issue | Status |
+|---|-------|--------|
+| 1 | [Create config module](https://github.com/Alexgub84/shop-scraper/issues/1) | open |
+| 2 | [Create types & Zod schema](https://github.com/Alexgub84/shop-scraper/issues/2) | open |
+| 3 | [Create CSS selectors module](https://github.com/Alexgub84/shop-scraper/issues/3) | open |
+| 4 | [Create browser lifecycle module](https://github.com/Alexgub84/shop-scraper/issues/4) | open |
+| 5 | [Create link collector](https://github.com/Alexgub84/shop-scraper/issues/5) | open |
+| 6 | [Create product scraper](https://github.com/Alexgub84/shop-scraper/issues/6) | open |
+| 7 | [Create JSON writer](https://github.com/Alexgub84/shop-scraper/issues/7) | open |
+| 8 | [Create entry point (orchestrator)](https://github.com/Alexgub84/shop-scraper/issues/8) | open |
+| 9 | [Validation: build, lint, e2e test](https://github.com/Alexgub84/shop-scraper/issues/9) | open |
 
-- [ ] 11. Add DB dependencies (better-sqlite3, drizzle-orm)
-- [ ] 12. Create DB schema & client (`src/db/`)
-- [ ] 13. Create product service (`src/services/product-service.ts`)
-- [ ] 14. Update entry point to write to DB instead of JSON
+### Phase 2 — Database persistence (`phase-2` label)
+
+| # | Issue | Status |
+|---|-------|--------|
+| 10 | [Add DB dependencies](https://github.com/Alexgub84/shop-scraper/issues/10) | open |
+| 11 | [Create DB schema & client](https://github.com/Alexgub84/shop-scraper/issues/11) | open |
+| 12 | [Create product service (DB upsert)](https://github.com/Alexgub84/shop-scraper/issues/12) | open |
+| 13 | [Update entry point to write to DB](https://github.com/Alexgub84/shop-scraper/issues/13) | open |
