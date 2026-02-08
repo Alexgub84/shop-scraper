@@ -6,5 +6,6 @@ export const PRODUCT_SELECTORS = {
   name: 'h1.product-title-h2',
   price: '.single-price .price',
   description: '.desc-abv p',
-  image: '.single-gallery img',
+  image: '.single-gallery li.lslide img',
+  catalogNumber: '#product-barcode',
 } as const

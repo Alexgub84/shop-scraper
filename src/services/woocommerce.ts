@@ -9,6 +9,8 @@ interface WcProduct {
   regular_price: string
   sku: string
   description: string
+  manage_stock: boolean
+  stock_quantity: number
   images: { src: string }[]
 }
 
@@ -16,12 +18,7 @@ interface SyncResult {
   created: number
   updated: number
   failed: number
-  errors: { sku: string; message: string }[]
-}
-
-function extractSku(productUrl: string): string {
-  const slug = new URL(productUrl).pathname.split('/').filter(Boolean).pop()
-  return slug ?? 'unknown'
+  errors: { catalogNumber: string; message: string }[]
 }
 
 function parsePrice(priceStr: string): string {
@@ -34,8 +31,10 @@ function toWcProduct(product: Product): WcProduct {
     type: 'simple',
     status: 'publish',
     regular_price: parsePrice(product.price),
-    sku: extractSku(product.productUrl),
+    sku: product.catalogNumber,
     description: product.description,
+    manage_stock: true,
+    stock_quantity: 10,
     images: product.imageUrl ? [{ src: product.imageUrl }] : [],
   }
 }
@@ -49,16 +48,33 @@ async function findExistingProduct(
   sku: string,
   apiUrl: string,
   auth: string,
-): Promise<number | null> {
-  const searchUrl = `${apiUrl}?sku=${encodeURIComponent(sku)}`
-  const response = await fetch(searchUrl, {
+): Promise<{ id: number; trashed: boolean } | null> {
+  for (const status of ['any', 'trash']) {
+    const searchUrl = `${apiUrl}?sku=${encodeURIComponent(sku)}&status=${status}`
+    const response = await fetch(searchUrl, {
+      headers: { Authorization: auth },
+    })
+
+    if (!response.ok) continue
+
+    const products = (await response.json()) as { id: number; status: string }[]
+    if (products.length > 0) {
+      return { id: products[0].id, trashed: products[0].status === 'trash' }
+    }
+  }
+
+  return null
+}
+
+async function deleteTrashedProduct(
+  productId: number,
+  apiUrl: string,
+  auth: string,
+): Promise<void> {
+  await fetch(`${apiUrl}/${productId}?force=true`, {
+    method: 'DELETE',
     headers: { Authorization: auth },
   })
-
-  if (!response.ok) return null
-
-  const products = (await response.json()) as { id: number }[]
-  return products.length > 0 ? products[0].id : null
 }
 
 async function upsertProduct(
@@ -67,10 +83,16 @@ async function upsertProduct(
   auth: string,
   logger: Logger,
 ): Promise<'created' | 'updated' | 'failed'> {
-  const existingId = await findExistingProduct(wcProduct.sku, apiUrl, auth)
+  const existing = await findExistingProduct(wcProduct.sku, apiUrl, auth)
 
-  const url = existingId ? `${apiUrl}/${existingId}` : apiUrl
-  const method = existingId ? 'PUT' : 'POST'
+  if (existing?.trashed) {
+    logger.info({ sku: wcProduct.sku }, 'removing trashed product before re-creating')
+    await deleteTrashedProduct(existing.id, apiUrl, auth)
+  }
+
+  const activeId = existing && !existing.trashed ? existing.id : null
+  const url = activeId ? `${apiUrl}/${activeId}` : apiUrl
+  const method = activeId ? 'PUT' : 'POST'
 
   const response = await fetch(url, {
     method,
@@ -82,7 +104,7 @@ async function upsertProduct(
   })
 
   if (response.ok) {
-    const action = existingId ? 'updated' : 'created'
+    const action = activeId ? 'updated' : 'created'
     logger.info(
       { sku: wcProduct.sku, name: wcProduct.name, action },
       `product ${action} in woocommerce`,
@@ -115,27 +137,29 @@ export async function syncProductsToWooCommerce(
   logger: Logger,
 ): Promise<SyncResult> {
   const auth = buildAuthHeader(config.WC_CONSUMER_KEY, config.WC_CONSUMER_SECRET)
+  const productsUrl = `${config.WC_STORE_URL}/wp-json/wc/v3/products`
   const result: SyncResult = { created: 0, updated: 0, failed: 0, errors: [] }
 
   for (const product of products) {
     const wcProduct = toWcProduct(product)
+    const catalogNumber = product.catalogNumber
 
     try {
-      const action = await upsertProduct(wcProduct, config.WC_API_URL, auth, logger)
+      const action = await upsertProduct(wcProduct, productsUrl, auth, logger)
       if (action === 'created') result.created++
       else if (action === 'updated') result.updated++
       else {
         result.failed++
-        result.errors.push({ sku: wcProduct.sku, message: 'upsert failed' })
+        result.errors.push({ catalogNumber, message: 'upsert failed' })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logger.error(
-        { sku: wcProduct.sku, error: message },
+        { catalogNumber, error: message },
         'failed to sync product',
       )
       result.failed++
-      result.errors.push({ sku: wcProduct.sku, message })
+      result.errors.push({ catalogNumber, message })
     }
   }
 

@@ -39,6 +39,10 @@ export async function scrapeProduct(
       )
       .catch(() => '')
 
+    const catalogNumber = await page
+      .$eval(PRODUCT_SELECTORS.catalogNumber, (el) => el.textContent?.trim() ?? '')
+      .catch(() => '')
+
     const rawImageSrc = await page
       .$eval(PRODUCT_SELECTORS.image, (el) => el.getAttribute('src') ?? '')
       .catch(() => '')
@@ -46,6 +50,7 @@ export async function scrapeProduct(
     const imageUrl = rawImageSrc ? resolveImageUrl(rawImageSrc) : ''
 
     const raw = {
+      catalogNumber,
       name,
       description,
       price,

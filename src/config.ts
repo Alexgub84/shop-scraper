@@ -4,7 +4,7 @@ import { z } from 'zod'
 const configSchema = z.object({
   SCRAPE_URL: z.url(),
   OUTPUT_PATH: z.string().min(1).default('./data/products.json'),
-  WC_API_URL: z.url(),
+  WC_STORE_URL: z.url(),
   WC_CONSUMER_KEY: z.string().min(1),
   WC_CONSUMER_SECRET: z.string().min(1),
 })
@@ -15,7 +15,7 @@ export function loadConfig(): Config {
   const result = configSchema.safeParse({
     SCRAPE_URL: process.env.SCRAPE_URL,
     OUTPUT_PATH: process.env.OUTPUT_PATH,
-    WC_API_URL: process.env.WC_API_URL,
+    WC_STORE_URL: process.env.WC_STORE_URL,
     WC_CONSUMER_KEY: process.env.WC_CONSUMER_KEY,
     WC_CONSUMER_SECRET: process.env.WC_CONSUMER_SECRET,
   })

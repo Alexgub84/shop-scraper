@@ -2,7 +2,7 @@ import type { Page } from 'playwright'
 import type { Logger } from 'pino'
 import { CATEGORY_SELECTORS } from './selectors.js'
 
-const MAX_PRODUCTS = 1
+const MAX_PRODUCTS = 10
 
 export async function collectProductLinks(
   page: Page,

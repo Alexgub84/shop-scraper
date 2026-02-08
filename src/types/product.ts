@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const ProductSchema = z.object({
+  catalogNumber: z.string().min(1),
   name: z.string().min(1),
   description: z.string(),
   price: z.string().min(1),
